@@ -1,0 +1,170 @@
+name: Release FFQManual
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish (for example v1.3.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag and version
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          [[ "$TAG" == v* ]] || { echo "Release tag must start with v: $TAG" >&2; exit 1; }
+          VERSION="${TAG#v}"
+          [[ -n "$VERSION" ]] || { echo "Empty version derived from tag" >&2; exit 1; }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Validate manifests and release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.ver.outputs.version }}"
+          python3 - "$VERSION" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          version = sys.argv[1]
+          paths = [
+              pathlib.Path('.codex-plugin/plugin.json'),
+              pathlib.Path('.claude-plugin/plugin.json'),
+              pathlib.Path('.claude-plugin/marketplace.json'),
+              pathlib.Path('.agents/plugins/marketplace.json'),
+          ]
+          docs = {}
+          for path in paths:
+              with path.open(encoding='utf-8') as f:
+                  docs[str(path)] = json.load(f)
+
+          for path in ('.codex-plugin/plugin.json', '.claude-plugin/plugin.json'):
+              manifest_version = docs[path].get('version')
+              if manifest_version != version:
+                  raise SystemExit(
+                      f'{path}: version {manifest_version!r} does not match release tag version {version!r}'
+                  )
+              if docs[path].get('name') != 'FFQManual':
+                  raise SystemExit(f'{path}: plugin name must be FFQManual')
+
+          skill = pathlib.Path('skills/FFQManual/SKILL.md')
+          if not skill.is_file():
+              raise SystemExit('skills/FFQManual/SKILL.md is missing')
+          if not skill.read_text(encoding='utf-8').startswith('---\nname: FFQManual\n'):
+              raise SystemExit('SKILL.md frontmatter name must be FFQManual')
+
+          print('Manifest, skill-name, and version checks passed.')
+          PY
+
+      - name: Package plugin
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.ver.outputs.version }}"
+          STAGE="FFQManual-plugin-${VERSION}"
+          DEST="dist/${STAGE}"
+
+          rm -rf dist
+          mkdir -p "$DEST"
+
+          # Codex uses .agents/ (plural), matching the Superplan layout.
+          cp -a .agents "$DEST/"
+          cp -a .claude-plugin "$DEST/"
+          cp -a .codex-plugin "$DEST/"
+          cp -a skills "$DEST/"
+
+          for file in README.md README.zh-CN.md CHANGELOG.md AUDIT.md LICENSE; do
+            [[ -f "$file" ]] && cp "$file" "$DEST/"
+          done
+
+          # Required runtime components.
+          test -f "$DEST/.agents/plugins/marketplace.json"
+          test -f "$DEST/.claude-plugin/plugin.json"
+          test -f "$DEST/.claude-plugin/marketplace.json"
+          test -f "$DEST/.codex-plugin/plugin.json"
+          test -f "$DEST/skills/FFQManual/SKILL.md"
+          test -f "$DEST/skills/FFQManual/agents/openai.yaml"
+
+          # Keep development and runtime junk out of release assets.
+          ! find "$DEST" -type d -name '__pycache__' -print -quit | grep -q .
+          ! find "$DEST" -type f \( -name '*.pyc' -o -name '.DS_Store' \) -print -quit | grep -q .
+
+          cd dist
+          tar -czf "${STAGE}.tar.gz" "$STAGE"
+          zip -qr "${STAGE}.zip" "$STAGE"
+          sha256sum "${STAGE}.tar.gz" "${STAGE}.zip" > checksums-sha256.txt
+
+          echo "stage=$STAGE" >> "$GITHUB_OUTPUT"
+          echo "Package contents:"
+          find "$STAGE" -type f | sort
+
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.ver.outputs.version }}"
+          BODY="$(python3 - "$VERSION" <<'PY'
+          import re
+          import sys
+
+          version = sys.argv[1]
+          text = open('CHANGELOG.md', encoding='utf-8').read()
+          pattern = re.compile(
+              r'^##\s+v?' + re.escape(version) + r'\b[^\n]*\n(.*?)(?=^##\s|\Z)',
+              re.M | re.S,
+          )
+          match = pattern.search(text)
+          if match:
+              print(match.group(1).strip())
+          PY
+          )"
+
+          if [[ -z "$BODY" ]]; then
+            BODY="FFQManual ${VERSION}. See CHANGELOG.md for details."
+          fi
+
+          {
+            echo 'body<<EOF_RELEASE_BODY'
+            echo "$BODY"
+            echo 'EOF_RELEASE_BODY'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          body: ${{ steps.notes.outputs.body }}
+          files: |
+            dist/FFQManual-plugin-*.tar.gz
+            dist/FFQManual-plugin-*.zip
+            dist/checksums-sha256.txt
+          generate_release_notes: false
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

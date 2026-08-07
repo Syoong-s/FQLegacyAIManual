@@ -1,0 +1,7 @@
+interface:
+  display_name: "FFQManual"
+  short_description: "Legacy F77 Fourier_Quad pipeline, direct HPC jobs, runner, and code map"
+  default_prompt: "Use $FFQManual to understand, configure, run, or modify the legacy Fourier_Quad F77 pipeline with minimal on-demand context."
+
+policy:
+  allow_implicit_invocation: true

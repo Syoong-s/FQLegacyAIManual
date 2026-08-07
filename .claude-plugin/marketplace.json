@@ -1,0 +1,14 @@
+{
+  "name": "ffqmanual-plugin",
+  "owner": {
+    "name": "Syoong-s",
+    "url": "https://github.com/Syoong-s"
+  },
+  "plugins": [
+    {
+      "name": "FFQManual",
+      "source": ".",
+      "description": "On-demand Fourier_Quad Pipeline Legacy (F77) knowledge with parameter/code routing, direct HPC Slurm generation, and full runner-style workflows."
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "name": "FFQManual",
+  "version": "1.3.0",
+  "description": "On-demand background and operating manual for Fourier_Quad Pipeline Legacy (F77), including Full/Lite reference layouts, Docker/Apptainer/HPC deployment, parameter tuning, and developer code changes without binding to a specific pipeline repository.",
+  "author": {
+    "name": "Syoong-s",
+    "url": "https://github.com/Syoong-s"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "FFQManual",
+    "shortDescription": "Legacy Fourier_Quad F77 pipeline manual and developer router",
+    "longDescription": "A low-context router with detailed on-demand references for Legacy F77 Full/Lite architecture, compile-time parameters, F6/PSF/shear stages, Docker deployment, direct HPC Slurm generation, full runner-style workflows, and precise source modification. Reference paths are navigation hints; the user's actual source tree is authoritative.",
+    "developerName": "Syoong-s",
+    "category": "Developer Tools",
+    "capabilities": [
+      "F77 pipeline architecture and stage routing",
+      "Full vs Lite behavior mapping",
+      "Compile-time parameter tuning",
+      "Docker and full runner-style HPC environment generation",
+      "Minimal direct HPC Slurm generation",
+      "Apptainer/Slurm/MPI deployment guidance",
+      "Developer source-change localization",
+      "Fourier_Quad estimator documentation"
+    ],
+    "defaultPrompt": [
+      "Use $FFQManual for this Fourier_Quad F77 pipeline task and load only the references needed for the requested subsystem."
+    ]
+  }
+}
