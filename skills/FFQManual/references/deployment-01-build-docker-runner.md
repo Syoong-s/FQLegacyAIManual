@@ -1,258 +1,129 @@
-# Build, Docker, Apptainer, Slurm, and Runner Generation
+# Build, Docker, and Full Runner-Style Deployment
 
 ## Scope
 
-Use this reference for source builds, local Docker Compose, and the **reference Legacy F77** `f77_docker/runner` pattern: `f77pipeline.env`, wrapper scripts, validation flow, and runner-compatible Slurm allocation. These names describe a reference layout, not a required repository structure. Prefer the user's current runner/env files when they exist, and adapt the reference pattern when they do not.
+Use this reference for local builds, Docker Compose, or the repository-style defensive HPC runner workflow. For a short self-contained Slurm job without runner checks, use `deployment-02-direct-hpc-slurm.md`. For dataset preparation, load `dataset-01-initializer-layout.md`.
 
-If the user explicitly wants a **minimal directly runnable Slurm job without runner audits, smoke tests, or wrapper validation**, do not use this as the primary reference; route to `deployment-02-direct-hpc-slurm.md`.
+## 1. Build contract
 
-## 1. Native/container build contract
+Both `f77/` and current `f77_Lite/` build the executable `Fourier_Quad_Pipe`. Their Makefiles currently depend on:
 
-The F77 Makefile uses:
+- Fortran source files;
+- `para.inc`;
+- `cust_para.inc`;
+- `sig_para.inc`;
+- `path_layout.inc`.
 
-- compiler wrapper: `mpif77`
-- target: `Fourier_Quad_Pipe`
-- source set: all `*.f` in the selected source directory
-- required includes: `para.inc`, `cust_para.inc`, `sig_para.inc`
-- flags: `-mcmodel=medium -w`
-- libraries: LAPACK, BLAS, and CFITSIO
-- overridable Make variables: `LAPACK_LIB_DIR`, `CFITSIO_LIB_DIR`, `CFITSIO_LIB`
-
-Changing any include parameter requires recompilation. Full `f77` may additionally emit/use a module file for `00_psf_module.f`; Lite omits that module path.
-
-## 2. F77 invocation contract
-
-The executable consumes the exposure list as its first positional argument:
+Typical modern GNU build:
 
 ```bash
-mpirun -np N ./Fourier_Quad_Pipe /path/to/expo_list.list
+export SCIENCE_PREFIX=/path/to/scientific-stack
+make -C f77 \
+  FC=mpifort \
+  FFLAGS='-mcmodel=medium -w -fallow-argument-mismatch' \
+  LAPACK_LIB_DIR="$SCIENCE_PREFIX/lib" \
+  CFITSIO_LIB_DIR="$SCIENCE_PREFIX/lib"
 ```
 
-Do not use the C++ pipeline's `--expo-list` / `--run-main` flags for F77.
+Replace `f77` with `f77_Lite` as needed. If CFITSIO is not discoverable through the directory override, pass the explicit library path supported by the current Makefile.
 
-The exposure list reader expects at least two whitespace-separated fields per line: exposure name/path and chip count. The current `initialize` routine stores the first field as the exposure identifier and reads the second into `nchip`.
+The recorded legacy container toolchain uses GNU Fortran/MPICH/CFITSIO/LAPACK versions chosen for reproducibility; use the repository's actual Dockerfile as authority for exact versions.
 
-## 3. Local Docker Compose `.env`
+## 2. Native run
 
-Current variables:
+```bash
+mpirun -np 4 ./f77/Fourier_Quad_Pipe /data/work/expo_gband.list
+```
+
+The first positional argument is the **top exposure list**, not a per-exposure chip list.
+
+If the dataset was built by the current initializer, the natural input is:
 
 ```text
-IMAGE_NAME
-BASE_IMAGE
-BUILD_JOBS
-HOST_UID
-HOST_GID
-F77_SOURCE_HOST
-ASTROMETRY_CAT_HOST
-ASTROMETRY_CAT_CONTAINER
-SOURCE_CAT_HOST
-SOURCE_CAT_CONTAINER
-FLAT_PATH_HOST
-FLAT_PATH_CONTAINER
-PROCESS_DATA_HOST
-PROCESS_DATA_CONTAINER
+<output-root>/expo_<target>.list
 ```
 
-Canonical container destinations are:
+## 3. Container path rule
 
-```text
-/workspace/f77
-/data/catalogs/AstroDir
-/data/catalogs/ExtSrcDir
-/data/calib/FlatDir
-/data/DataProcess
-```
+Paths compiled into `para.inc` (`ASTROMETRY_CAT`, `SOURCE_CAT`, `FLAT_PATH`, optional external PSF path) must match the paths visible **inside** the container.
 
-`compose.yaml` binds source and processing data read-write; astrometry/source/flat inputs are read-only.
+Likewise, paths stored inside `expo_<target>.list` and every `expolists/<exposure>.list` must be container-visible paths. A correct host file containing host-only absolute paths will still fail inside the container.
 
-### Generate a Docker `.env`
+## 4. Docker Compose reference pattern
 
-When the user gives host paths, preserve the canonical container paths unless there is a concrete reason to change them. Then ensure `para.inc` uses the same container strings for `ASTROMETRY_CAT`, `SOURCE_CAT`, and `FLAT_PATH`.
-
-A safe generated skeleton is:
+Typical workflow:
 
 ```bash
-IMAGE_NAME=f77pipeline-dev:gnu4.8.5
-BASE_IMAGE=quay.io/rockylinux/rockylinux:8.10@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6
-BUILD_JOBS=4
-HOST_UID=<uid>
-HOST_GID=<gid>
+cd f77_docker
+cp .env.example .env
+# edit .env
 
-F77_SOURCE_HOST=<absolute host path to f77 or f77_Lite>
-ASTROMETRY_CAT_HOST=<absolute host astrometry path>
-ASTROMETRY_CAT_CONTAINER=/data/catalogs/AstroDir
-SOURCE_CAT_HOST=<absolute host source-catalog path>
-SOURCE_CAT_CONTAINER=/data/catalogs/ExtSrcDir
-FLAT_PATH_HOST=<absolute host flat/calibration path>
-FLAT_PATH_CONTAINER=/data/calib/FlatDir
-PROCESS_DATA_HOST=<absolute host processing-data path>
-PROCESS_DATA_CONTAINER=/data/DataProcess
+docker compose pull    # or build, according to current repository workflow
+docker compose run --rm FourierQuad-F77
 ```
 
-## 4. HPC runtime model
+Set at least:
 
-On Slurm HPC, Docker Compose is not used at runtime. The current design is:
+- image name/tag;
+- `F77_SOURCE_HOST` pointing to `f77/` or `f77_Lite/`;
+- processing-data host path;
+- catalog/calibration host paths;
+- matching container destinations;
+- host UID/GID when required.
 
-1. Build/publish OCI image elsewhere.
-2. Pull/convert to immutable SIF as a non-root user.
-3. Bind source, catalogs, calibration, and processing data into the SIF.
-4. Compile the bind-mounted source once in the batch allocation.
-5. Launch one `apptainer exec`/`singularity exec` command per MPI rank using host `mpiexec` or a validated `srun` PMI mode.
+Do not copy an old `.env` blindly: compare it with the current repository example because path/layout variables can evolve.
 
-The source and all host input paths must be visible at the same absolute location on every allocated compute node.
+## 5. Initializer in container workflows
 
-## 5. `runner/f77pipeline.env` contract
+The initializer reads source `.fits.fz` archives and publishes the current F77-compatible layout. You may run it on the host or in an appropriate Python environment before launching the Fortran container.
 
-Required/current fields are:
-
-```text
-OCI_IMAGE_URI
-F77_SIF
-F77_SOURCE_HOST
-F77_SOURCE_CONTAINER
-ASTROMETRY_CAT_HOST
-ASTROMETRY_CAT_CONTAINER
-SOURCE_CAT_HOST
-SOURCE_CAT_CONTAINER
-FLAT_PATH_HOST
-FLAT_PATH_CONTAINER
-PROCESS_DATA_HOST
-PROCESS_DATA_CONTAINER
-F77_EXPO_LIST_CONTAINER
-HPC_SHARED_SCRATCH_HOST
-APPTAINER_BIN
-HPC_EXTRA_BINDS
-FI_PROVIDER
-FI_PROVIDER_PATH
-HPC_SCRUB_OPENMPI_ENV
-HPC_MODULES
-SITE_ENV_SCRIPT
-MPI_LAUNCH_MODE
-MPI_LAUNCHER
-SLURM_MPI_TYPE
-F77_BUILD_JOBS
-F77_MAKE_CLEAN
-F77_EXECUTABLE
-```
-
-`run-apptainer.sh` currently validates all source/catalog/flat/data host directories even if the selected Full compile-time branch will not use one of them. Do not omit a required env field merely because `include_FLAT=0` or `ext_cat=0`; either provide a valid directory or intentionally modify the runner contract.
-
-### Generic generated HPC env
+For example:
 
 ```bash
-OCI_IMAGE_URI=<ghcr image tag or preferably digest>
-F77_SIF=<absolute shared path to .sif>
-
-F77_SOURCE_HOST=<absolute shared path to f77 or f77_Lite>
-F77_SOURCE_CONTAINER=/workspace/f77
-
-ASTROMETRY_CAT_HOST=<absolute shared astrometry dir>
-ASTROMETRY_CAT_CONTAINER=/data/catalogs/AstroDir
-SOURCE_CAT_HOST=<absolute shared source catalog dir>
-SOURCE_CAT_CONTAINER=/data/catalogs/ExtSrcDir
-FLAT_PATH_HOST=<absolute shared flat/calibration dir>
-FLAT_PATH_CONTAINER=/data/calib/FlatDir
-PROCESS_DATA_HOST=<absolute shared processing dir>
-PROCESS_DATA_CONTAINER=/data/DataProcess
-F77_EXPO_LIST_CONTAINER="${PROCESS_DATA_CONTAINER%/}/expo_list.list"
-
-HPC_SHARED_SCRATCH_HOST="${PROCESS_DATA_HOST}"
-APPTAINER_BIN=
-HPC_EXTRA_BINDS=
-FI_PROVIDER=
-FI_PROVIDER_PATH=
-HPC_SCRUB_OPENMPI_ENV=1
-HPC_MODULES=()
-SITE_ENV_SCRIPT=
-
-MPI_LAUNCH_MODE=mpiexec
-MPI_LAUNCHER=mpiexec
-SLURM_MPI_TYPE=pmi2
-
-F77_BUILD_JOBS=4
-F77_MAKE_CLEAN=1
-F77_EXECUTABLE="${F77_SOURCE_CONTAINER%/}/Fourier_Quad_Pipe"
+python init_program/init_program.py \
+  --science-root /archive/science \
+  --dq-root /archive/dq \
+  --output-root /data/work \
+  --target gband \
+  --existing resume
 ```
 
-### Validated pilogin OpenMPI-module mode
+Then ensure `/data/work` is bound at the same container-visible prefix encoded in the generated list files, or regenerate lists using container-visible paths.
 
-The reference runner material includes a pilogin example that loads:
+## 6. Full runner-style HPC workflow
+
+Use the repository's `f77_docker/runner/` framework when the user wants its audit/check/smoke-test behavior rather than a minimal job. A typical current pattern is:
 
 ```bash
-HPC_MODULES=(gcc/12.3.0 openmpi/4.1.6-gcc-12.3.0)
-MPI_LAUNCH_MODE=srun
-MPI_LAUNCHER=
-SLURM_MPI_TYPE=pmi2
-HPC_SCRUB_OPENMPI_ENV=1
+cd f77_docker/runner
+cp f77pipeline.env.example f77pipeline.env
+# edit site paths, image/SIF, source and data binds, MPI mode
+
+bash run-apptainer.sh --check
+sbatch mpi-smoke-test.slurm
+sbatch f77pipeline.slurm
 ```
 
-This does **not** mean OpenMPI launches the MPICH-linked application. Slurm PMI2 starts the container command per rank; host OpenMPI `mpirun` must not be used for the MPICH-linked executable.
+Treat these filenames as reference-layout hints; inspect the user's current runner directory before generating exact files.
 
-## 6. Bind-path consistency rules
+## 7. MPI compatibility
 
-`run-apptainer.sh` makes these binds:
+Container MPI launch is site-specific. Do not assume a host OpenMPI launcher is ABI-compatible with an MPICH application merely because both provide `mpiexec`. Use the repository's runner documentation and the cluster's supported PMI/PMIx/Slurm launch mode.
 
-| Host | Container | Access |
-|---|---|---|
-| `F77_SOURCE_HOST` | `F77_SOURCE_CONTAINER` | rw |
-| `ASTROMETRY_CAT_HOST` | `ASTROMETRY_CAT_CONTAINER` | ro |
-| `SOURCE_CAT_HOST` | `SOURCE_CAT_CONTAINER` | ro |
-| `FLAT_PATH_HOST` | `FLAT_PATH_CONTAINER` | ro |
-| `PROCESS_DATA_HOST` | `PROCESS_DATA_CONTAINER` | rw |
+For multi-node jobs, validate MPI separately before attributing launch failures to F77 stage code.
 
-Extra mappings can be passed by `--bind` or `HPC_EXTRA_BINDS`.
+## 8. Build once, run many ranks
 
-### External PSF special case
+Compile the selected bind-mounted source once before launching the multi-rank executable. Do not let every MPI rank race to rebuild the same executable.
 
-Full `f77` with `ext_PSF=1` reads a PSF path compiled into `PSF_PATH`, but the standard runner has no dedicated `PSF_PATH_HOST/CONTAINER` pair. Generate an explicit additional read-only bind, for example:
+Any edit to compile-time includes—including `path_layout.inc` and path strings in `para.inc`—requires rebuilding before execution.
 
-```bash
-HPC_EXTRA_BINDS=/host/psf:/data/catalogs/PSF:ro
-```
+## 9. Troubleshooting order
 
-and compile `PSF_PATH` to `/data/catalogs/PSF` (or the exact expected subpath). Lite cannot select `ext_PSF=1` without reintroducing removed code.
-
-## 7. Slurm resource allocation
-
-Allocation directives live in `.slurm`, not in `f77pipeline.env`. The generic template currently defaults to `cpu`, 2 nodes, 8 ranks, 4 ranks/node. The pilogin wrapper currently defaults to `cpu`, `--exclusive`, 2 nodes, 4 ranks, 2 ranks/node.
-
-When generating a site-specific Slurm file:
-
-- keep `--ntasks = nodes * ntasks-per-node` unless deliberately uneven;
-- keep `--cpus-per-task=1` for this MPI process model unless code/threading changes;
-- respect site-specific per-node and total-core limits;
-- edit/override partition, account/QoS, memory, walltime, logs together as needed;
-- do not put scheduler allocation settings into `f77pipeline.env` and assume Slurm will read them.
-
-## 8. Validation sequence before production
-
-1. `inspect-cluster-mpi.sh` on a new cluster (read-only audit).
-2. Pull/transfer SIF.
-3. `run-apptainer.sh --check` for compiler/MPI/CFITSIO and bind validation.
-4. Single rank.
-5. Multiple ranks on one node.
-6. One rank on each of two nodes.
-7. Multiple ranks across two nodes using `mpi-smoke-test.slurm`.
-8. Representative pipeline run and performance/fabric validation.
-
-Do not infer multi-node compatibility from version strings or a local Docker test alone.
-
-## 9. Concurrency hazard
-
-The batch template can run `make clean` and rebuild the **shared bind-mounted source tree**. Two concurrent jobs using the same source directory can race or delete each other's build products. For concurrent development/runs, use separate source/build directories or set a deliberate no-clean policy after verifying the executable.
-
-## Runner-generation checklist for an AI
-
-Before writing the final env/slurm file, resolve or use visible placeholders for:
-
-- Full vs Lite source directory;
-- OCI image URI/digest and SIF path;
-- five required shared host directories;
-- whether compiled container paths already match `para.inc`;
-- exposure-list filename/location;
-- generic MPICH `mpiexec` vs validated `srun` PMI mode;
-- cluster modules/runtime command;
-- nodes, ranks, ranks/node, memory, time, partition/account/QoS;
-- external PSF or RDMA extra binds.
-
-If only host paths are missing, generate a complete file with explicit `<...>` placeholders rather than loading unrelated algorithm references.
+1. validate list paths and container-visible prefixes;
+2. confirm initializer/product layout when files are missing;
+3. confirm catalog/calibration binds match compiled paths;
+4. clean-build the selected variant;
+5. test a single rank/small exposure set;
+6. validate MPI launcher compatibility;
+7. only then debug stage numerics.

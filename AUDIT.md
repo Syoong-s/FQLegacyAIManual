@@ -1,48 +1,38 @@
 # Skill Architecture Audit
 
-## Main issues found in the uploaded skill
+## Current architecture
 
-1. The top-level `SKILL.md` was already reference-based, but still contained formulas, compile environment details, C++ commentary, and an external-skill dependency. This made the always-loaded layer larger and more fragile than necessary.
-2. It did not contain a complete parameter-routing layer for precise user-directed tuning.
-3. It did not document the real `f77_Lite` contract: eight selectors are frozen and alternate branches physically removed.
-4. It mentioned Docker/HPC only briefly, insufficient for reliably generating `.env` / `f77pipeline.env` or reasoning about host/container path coupling and MPI mode.
-5. It lacked a developer change map tying requested behavior to exact stage files and cross-file interfaces.
-6. Auxiliary measurement documentation was presented too close to the main pipeline even though its source was not part of the reference material used for the audit; it also contained an unsupported `process_fd` source claim.
-7. References to `general_rule` / `alatrico` made the skill non-self-contained when packaged alone.
-
-## Resulting architecture
-
-- `SKILL.md`: compact router + invariants only.
-- stage references: retain detailed algorithms/formulas.
+- `SKILL.md`: compact router + high-value invariants.
+- `dataset-01-initializer-layout.md`: initializer, exposure-list, dataset-root, product-layout and path-helper contract.
+- stage references: detailed algorithms and stage behavior.
 - `config-01-parameter-map.md`: parameter-oriented lookup.
-- `variant-01-full-vs-lite.md`: variant boundaries.
-- `deployment-01-build-docker-runner.md`: reproducible runtime/runner generation.
-- `development-01-change-map.md`: source edit localization + verification.
-- `measurement-00-scope.md`: isolates unverified auxiliary source scope.
+- `variant-01-full-vs-lite.md`: feature boundary and shared I/O contract.
+- deployment references: full runner vs minimal Direct HPC.
+- `development-01-change-map.md`: requested behavior → source/interface → verification.
+- measurement references: auxiliary analysis scope isolated from the main F77 runtime.
 
-This structure optimizes for low initial context while preserving deep detail after routing.
+## 1.4.0 compatibility audit
 
-## 1.1.0 follow-up: Direct HPC mode
+The manual was rechecked against the modernized Legacy F77 reference state on 2026-09-21, including the compatibility/layout migration and subsequent Lite synchronization. The audit found several material stale assumptions in 1.3.0:
 
-The 1.0.0 deployment reference still biased an agent toward the full defensive runner workflow even when a user explicitly wanted a short production Slurm script. Version 1.1.0 separates these concerns:
+1. **Initializer missing from the manual.** The current pipeline has a single `init_program.py` replacing the older split decompression/list-generation workflow.
+2. **Filesystem contract changed.** Current products are organized under a WFST-compatible target tree with exposure-scoped science/DQ/stamp/astrometry paths.
+3. **Full/Lite filesystem behavior converged.** Lite no longer uses a separate old legacy layout in the current reference implementation.
+4. **Centralized path API was undocumented.** `path_layout.inc` and `fq_*_product_path` helpers now carry the product-path contract across stage code.
+5. **Stage-1 DQ/F6 description was stale.** Current code loads DQ before background/F6 and marks DQ pixels invalid in `weight`; `set_sig` consumes that weight mask even though it does no DQ file I/O itself.
+6. **Path capacity was stale.** Current reference `strl` is 512 rather than the older 150 value.
+7. **External catalog prefix was missing.** Current reference defines `SOURCE_CAT_TILE_PREFIX='extern_'`.
+8. **Build dependency guidance was stale.** Current Full/Lite Makefiles include `path_layout.inc` in the executable dependency set.
+9. **Deployment examples did not surface the current initializer output.** The natural initialized F77 entry list is `<output-root>/expo_<target>.list`.
 
-- `deployment-01-build-docker-runner.md` is now explicitly the full runner-style path.
-- `deployment-02-direct-hpc-slurm.md` is the minimal production path: acquire SIF, define only needed paths, bind them directly, compile once, launch MPI ranks, and run `Fourier_Quad_Pipe <EXPO_LIST>`.
-- Direct mode forbids automatically adding audit/check/smoke-test wrappers or unused runner configuration fields.
-- Direct mode supports either a small env + Slurm pair or a single self-contained Slurm file.
+## 1.4.0 design decisions
 
+The fix deliberately does **not** turn the skill into a pinned copy of one repository revision. Instead:
 
-## 1.2.0 follow-up: FFQManual packaging and release
+- current compatibility facts are documented as a reference contract;
+- exact editing still requires inspecting the user's live source tree;
+- initializer/layout knowledge is isolated in one reference rather than duplicated across every stage file;
+- the top-level router only gains enough invariants to prevent old-layout and old-DQ assumptions;
+- Full/Lite feature differences remain separate from their now-shared I/O contract.
 
-- Runtime identity is now `FFQManual` in both host manifests and in `skills/FFQManual/SKILL.md`.
-- Plugin repository metadata points to `Syoong-s/FQLegacyAIManual`.
-- Automatic release packaging copies the complete `.agents/`, `.claude-plugin/`, `.codex-plugin/`, and `skills/` trees instead of reconstructing the knowledge tree file by file, preventing newly added references from being accidentally omitted.
-- The Codex marketplace directory is `.agents/` (plural), matching the Superplan structure.
-
-## 1.3.0 follow-up: repository-independent Legacy F77 knowledge
-
-- The skill no longer identifies any external Git repository as the source of truth for the Legacy F77 pipeline.
-- Reference paths such as `f77/main.f`, `f77_Lite/para.inc`, and `f77_docker/runner/...` are explicitly navigation hints describing the reference implementation layout.
-- Code changes must first locate the corresponding file/symbol/interface in the user's actual source tree; directory names are not assumed.
-- Deployment material is described as reference runner/direct-HPC patterns rather than a contract tied to one repository checkout.
-- Auxiliary measurement notes describe limitations of the manual's reference material rather than absence from a named repository.
+This keeps the low-context architecture while making the manual usable with the current Pipeline layout.

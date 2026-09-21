@@ -8,7 +8,7 @@
     {
       "name": "FFQManual",
       "source": ".",
-      "description": "On-demand Fourier_Quad Pipeline Legacy (F77) knowledge with parameter/code routing, direct HPC Slurm generation, and full runner-style workflows."
+      "description": "On-demand Fourier_Quad Pipeline Legacy (F77) knowledge for the current initializer/dataset layout, Full/Lite behavior, parameter/code routing, direct HPC Slurm generation, and full runner-style workflows."
     }
   ]
 }

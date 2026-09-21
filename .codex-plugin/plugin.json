@@ -1,7 +1,7 @@
 {
   "name": "FFQManual",
-  "version": "1.3.0",
-  "description": "On-demand background and operating manual for Fourier_Quad Pipeline Legacy (F77), including Full/Lite reference layouts, Docker/Apptainer/HPC deployment, parameter tuning, and developer code changes without binding to a specific pipeline repository.",
+  "version": "1.4.0",
+  "description": "On-demand operating and developer manual for Fourier_Quad Pipeline Legacy (F77), including the current initializer/dataset layout, Full/Lite I/O contract, Docker/Apptainer/HPC deployment, parameter tuning, stage behavior, and source changes without hard-binding edits to one checkout.",
   "author": {
     "name": "Syoong-s",
     "url": "https://github.com/Syoong-s"
@@ -9,18 +9,19 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "FFQManual",
-    "shortDescription": "Legacy Fourier_Quad F77 pipeline manual and developer router",
-    "longDescription": "A low-context router with detailed on-demand references for Legacy F77 Full/Lite architecture, compile-time parameters, F6/PSF/shear stages, Docker deployment, direct HPC Slurm generation, full runner-style workflows, and precise source modification. Reference paths are navigation hints; the user's actual source tree is authoritative.",
+    "shortDescription": "Legacy Fourier_Quad F77 initializer, pipeline, deployment, and code map",
+    "longDescription": "A low-context router with on-demand references for the current Legacy F77 initializer and dataset layout, shared Full/Lite product-path contract, compile-time parameters, F6/PSF/shear stages, Docker deployment, direct HPC Slurm generation, full runner-style workflows, and source modification. Reference paths guide navigation while the user's actual source tree remains authoritative.",
     "developerName": "Syoong-s",
     "category": "Developer Tools",
     "capabilities": [
+      "F77 dataset initializer and layout guidance",
       "F77 pipeline architecture and stage routing",
-      "Full vs Lite behavior mapping",
+      "Full vs Lite behavior and shared I/O mapping",
       "Compile-time parameter tuning",
       "Docker and full runner-style HPC environment generation",
       "Minimal direct HPC Slurm generation",
       "Apptainer/Slurm/MPI deployment guidance",
-      "Developer source-change localization",
+      "Developer source-change and product-path localization",
       "Fourier_Quad estimator documentation"
     ],
     "defaultPrompt": [

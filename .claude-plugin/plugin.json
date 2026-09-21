@@ -1,7 +1,7 @@
 {
   "name": "FFQManual",
-  "description": "On-demand background and operating manual for Fourier_Quad Pipeline Legacy (F77), including Full/Lite reference layouts, Docker/Apptainer/HPC deployment, parameter tuning, and developer code changes without binding to a specific pipeline repository.",
-  "version": "1.3.0",
+  "description": "On-demand operating and developer manual for Fourier_Quad Pipeline Legacy (F77), including the current initializer/dataset layout, Full/Lite I/O contract, Docker/Apptainer/HPC deployment, parameter tuning, stage behavior, and source changes without hard-binding edits to one checkout.",
+  "version": "1.4.0",
   "author": {
     "name": "Syoong-s",
     "url": "https://github.com/Syoong-s"

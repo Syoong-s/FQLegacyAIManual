@@ -1,45 +1,47 @@
 # Full `f77` vs `f77_Lite`
 
-## Purpose
+## Shared execution and I/O contract
 
-Use this reference whenever a task may behave differently between the two Fortran trees. The Lite tree is not merely a smaller build: it freezes production choices and removes the dead branches from source.
+Current Full and Lite both:
 
-## Shared architecture
+- build `Fourier_Quad_Pipe`;
+- accept `Fourier_Quad_Pipe <EXPO_LIST>`;
+- use `strl=512` in the current reference configuration;
+- validate exposure-list input more defensively than the old `getarg`/list-reader path;
+- include `path_layout.inc` as a build dependency;
+- use the same WFST-compatible dataset/product layout;
+- use the same family of `fq_*_product_path` helpers in `universal.f`.
 
-Both variants keep the same 9-stage prime-factor schedule, executable name (`Fourier_Quad_Pipe`), MPI entry pattern, core stage files, Fourier_Quad estimator, F6 estimator, catalog layout, and most numerical parameters.
+So a filesystem/layout fix should normally be reviewed and synchronized in both variants.
 
-## Eight frozen selectors
+## Frozen Lite selectors
 
-In Full `f77/para.inc`, these are editable compile-time parameters. In `f77_Lite`, they are **absent as selectors** and the listed behavior is compiled directly into the remaining code.
+In Full `f77/para.inc`, these are editable compile-time selectors. In current `f77_Lite`, they are absent as selectors and their production behavior is compiled directly into the remaining code.
 
-| Full selector | Lite behavior | Consequence for edits |
+| Full selector | Lite behavior | Consequence |
 |---|---:|---|
-| `ASTROMETRY_trivial` | `0` | Gaia-based astrometry only; no trivial branch |
-| `include_FLAT` | `0` | No super-flat multiplication |
-| `include_Mask` | `2` | Per-chip DQ mask mode only |
+| `ASTROMETRY_trivial` | `0` | Gaia/PU astrometry only |
+| `include_FLAT` | `0` | No super-flat branch |
+| `include_Mask` | `2` | DQ masking path retained |
 | `ext_cat` | `1` | External source catalog only |
-| `ext_PSF` | `0` | PSF measured from frame stars only |
+| `ext_PSF` | `0` | PSF measured from stars in the frame |
 | `deblending` | `1` | Deblending always applied |
-| `PSF_type` | `1` | Local polynomial PSF fit only |
+| `PSF_type` | `1` | Local polynomial PSF path |
 | `PSF_Ms` | `0` | No multi-scale/PCA PSF reconstruction |
 
-Still selectable in Lite include `PROCESS_stage`, `CCD_split`, `gal_smooth`, and `star_smooth`, plus the ordinary numerical thresholds/sizes that remain in `para.inc`.
+Still-selectable controls include `PROCESS_stage`, `CCD_split`, `gal_smooth`, `star_smooth`, geometry/capacity values, catalog paths, and numerical F6 controls that remain present in Lite.
 
-## File-level differences
+## Full-only source/features
 
-- Full contains `00_psf_module.f` and the PCA/multi-scale reconstruction path (`proc_psfreconsV2.f`, module storage, `free_psf_memory`, PCA parameters in `cust_para.inc`).
-- Lite omits `00_psf_module.f` and removes PCA-only parameters from `cust_para.inc`.
-- Full `main.f` conditionally calls `chip_psf_recons` and `free_psf_memory` when `PSF_Ms=1`; Lite `main.f` has no such calls.
-- Many corresponding files have branch deletions in Lite even when filenames match. Never copy a Full patch mechanically into Lite without checking the Lite symbol context.
+Full includes `00_psf_module.f` and the substantial PCA/multi-scale reconstruction path used when `PSF_Ms=1`, including PCA-specific `cust_para.inc` parameters. Lite removes that feature path rather than merely disabling it at runtime.
 
-## Decision rule
+## Porting rule
 
-Use **Full** if the requested behavior needs any frozen alternative (internal detection, external PSF, trivial astrometry, flat branch, alternate mask mode, PSF_type=2, PCA PSF, or deblending off). Use **Lite** when the production choices above are acceptable and the goal is a smaller, less branch-heavy codebase.
+When porting a Full change to Lite, classify it first:
 
-## Porting a change safely
+- **Layout/path/list-reader/build dependency:** normally synchronize in both variants.
+- **Shared numerical routine:** compare both implementations and synchronize where the routine still exists.
+- **One of the eight frozen feature branches:** do not mechanically add the Full selector/branch to Lite; decide whether expanding Lite's scope is explicitly intended.
+- **PCA/multi-scale PSF code:** Full-only unless Lite is deliberately redesigned.
 
-1. Identify whether the edited logic lies inside/depends on one of the eight frozen branches.
-2. Inspect the exact symbol in both trees.
-3. If logic is shared, patch both implementations if parity is required.
-4. If logic is Full-only, do not re-introduce the deleted selector into Lite unless the user explicitly wants to expand Lite's scope.
-5. Build each edited tree separately; matching filenames do not guarantee matching source context.
+Never infer Lite behavior from old documentation saying it uses a separate legacy filesystem layout; the current reference implementation uses the same modernized product layout as Full.
