@@ -2,9 +2,6 @@
 
 **FFQManual** is a low-context, on-demand AI operating manual for **Fourier_Quad Pipeline Legacy (F77)**. The plugin/manual is maintained at **Syoong-s/FQLegacyAIManual**, but the skill is not hard-bound to one pipeline checkout. Reference paths describe the maintained Legacy F77 layout; the user's actual source tree is authoritative for exact edits and runs.
 
-Repository: https://github.com/Syoong-s/FQLegacyAIManual  
-Author: [Syoong-s](https://github.com/Syoong-s)
-
 > 中文说明：[README.zh-CN.md](README.zh-CN.md)
 
 ## Design
